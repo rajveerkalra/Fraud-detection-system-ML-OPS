@@ -316,3 +316,25 @@ docker compose run --rm evaluation
 
 You should see an `EVAL_RESULT ...` JSON line and the results logged to MLflow experiment `fraud_evaluation` (UI: `http://localhost:15000`).
 
+## Phase 6.1: Production-grade evaluation (event_id + delayed labels)
+
+This is the “real world” evaluation loop:
+
+- predictions sink: `services/model-service/logs/predictions_eventid.jsonl` (written by `model-service`)
+- labels sink: `services/model-service/logs/labels.jsonl` (written by `label-simulator` with a delay)
+- join key: `event_id`
+- integrity: the evaluation job fails if any `event_id` can’t be joined (unless explicitly allowed)
+
+Run:
+
+```bash
+docker compose up -d model-service realtime-inference label-simulator
+docker compose up -d event-simulator
+docker compose run --rm evaluation-eventid
+```
+
+Notes:
+
+- `LABEL_DELAY_SECONDS` (label-simulator) controls the delay (demo default is small).
+- `LABEL_GRACE_MINUTES` (evaluation-eventid) prevents evaluating “too fresh” predictions that may not have labels yet.
+

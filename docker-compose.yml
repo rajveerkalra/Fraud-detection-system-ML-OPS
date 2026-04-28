@@ -225,6 +225,7 @@ services:
       FEAST_REPO: /repo
       MODEL_NAME: fraud_model
       DECISION_THRESHOLD: "0.5"
+      PREDICTION_LOG_PATH: /logs/predictions_eventid.jsonl
       PYTHONUNBUFFERED: "1"
     command:
       - bash
@@ -256,6 +257,30 @@ services:
       - |
         pip install -q -r requirements.txt && \
         python -u inference.py
+
+  label-simulator:
+    image: python:3.11-slim
+    depends_on:
+      - kafka
+    working_dir: /app
+    volumes:
+      - ./services/label-simulator:/app
+      - ./services/model-service/logs:/logs
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+      KAFKA_TOPIC_IN: payments.v1
+      KAFKA_TOPIC_OUT: labels.v1
+      KAFKA_GROUP_ID: label-simulator.v1
+      KAFKA_OFFSET_RESET: latest
+      LABEL_DELAY_SECONDS: "5"
+      LABELS_LOG_PATH: /logs/labels.jsonl
+      PYTHONUNBUFFERED: "1"
+    command:
+      - bash
+      - -lc
+      - |
+        pip install -q -r requirements.txt && \
+        python -u label_simulator.py
 
   prometheus:
     image: prom/prometheus:v3.6.0
@@ -332,6 +357,34 @@ services:
       - |
         pip install -q -r requirements.txt && \
         python -u evaluate_delayed_labels.py
+
+  evaluation-eventid:
+    image: python:3.11-slim
+    depends_on:
+      - mlflow
+      - model-service
+      - label-simulator
+    working_dir: /app
+    volumes:
+      - ./services/evaluation:/app
+      - ./services/model-service/logs:/logs:ro
+      - ./services/model-training/mlruns:/mlflow/mlruns
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT: fraud_evaluation_eventid
+      PREDICTION_LOG_PATH: /logs/predictions_eventid.jsonl
+      LABELS_LOG_PATH: /logs/labels.jsonl
+      THRESHOLD: "0.5"
+      LABEL_GRACE_MINUTES: "0"
+      ALLOW_PARTIAL: "0"
+      MAX_ROWS: "200000"
+      PYTHONUNBUFFERED: "1"
+    command:
+      - bash
+      - -lc
+      - |
+        pip install -q -r requirements.txt && \
+        python -u evaluate_eventid_delayed_labels.py
 
 volumes:
   grafana-storage:

@@ -55,6 +55,10 @@ FEATURE_MISSING_TOTAL = Counter(
     "Count of missing online features",
     ["feature"],
 )
+EVENT_ID_MISSING_TOTAL = Counter(
+    "model_service_event_id_missing_total",
+    "Count of /predict requests missing event_id (server-generated)",
+)
 PREDICT_LATENCY_SECONDS = Histogram(
     "model_service_predict_latency_seconds",
     "Latency of /predict",
@@ -147,6 +151,15 @@ def predict(req: PredictRequest) -> PredictResponse:
     t0 = time.time()
     try:
         REQUESTS_TOTAL.labels(endpoint="/predict", status="attempt").inc()
+        # event_id is required for production-grade evaluation; generate as a fallback
+        # so manual curl calls don't break the demo.
+        event_id = req.event_id
+        if not event_id:
+            import uuid
+
+            event_id = str(uuid.uuid4())
+            EVENT_ID_MISSING_TOTAL.inc()
+
         fs = get_feature_store()
         feats = fs.get_online_features(
             features=[
@@ -214,8 +227,11 @@ def predict(req: PredictRequest) -> PredictResponse:
             settings.prediction_log_path,
             {
                 "ts": utc_now_iso(),
+                "event_id": event_id,
                 "card_id": req.card_id,
                 "amount": float(req.amount),
+                "event_ts": req.event_ts,
+                "ingest_ts": req.ingest_ts,
                 "txn_count_1m": int(txn_count_1m),
                 "amount_sum_1m": float(amount_sum_1m),
                 "txn_count_5m": int(txn_count_5m),
@@ -229,6 +245,7 @@ def predict(req: PredictRequest) -> PredictResponse:
 
         REQUESTS_TOTAL.labels(endpoint="/predict", status="ok").inc()
         return PredictResponse(
+            event_id=event_id,
             card_id=req.card_id,
             fraud_probability=prob,
             decision=decision,

@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -127,6 +128,9 @@ def main() -> None:
     idx = np.arange(n, dtype=np.int64)
     raw["card_id"] = pd.Series((idx % cfg.n_cards)).map(lambda x: f"card_{int(x)}")
     raw["merchant_id"] = pd.Series((idx % cfg.n_merchants)).map(lambda x: f"m_{int(x)}")
+    # Deterministic event_id for offline dataset (stable across reruns).
+    ns = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    raw["event_id"] = pd.Series(idx).map(lambda i: str(uuid.uuid5(ns, f"creditcard:{int(i)}")))
 
     # Add plausible categorical fields (optional, but helpful for realism).
     raw["channel"] = rng.choice(["pos", "ecom"], size=n, p=[0.7, 0.3])
@@ -140,6 +144,7 @@ def main() -> None:
     # Keep only columns downstream expects (plus a couple useful extras).
     out = raw[
         [
+            "event_id",
             "card_id",
             "merchant_id",
             "event_timestamp",

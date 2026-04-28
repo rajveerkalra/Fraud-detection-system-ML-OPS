@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import uuid
 from datetime import datetime, timezone
 
 import requests
@@ -44,12 +45,19 @@ def main() -> None:
         processed += 1
         try:
             evt = json.loads(msg.value().decode("utf-8"))
+            event_id = evt.get("event_id") or str(uuid.uuid4())
             card_id = str(evt["card_id"])
             amount = float(evt["amount"])
 
             r = requests.post(
                 f"{model_service_url}/predict",
-                json={"card_id": card_id, "amount": amount},
+                json={
+                    "event_id": event_id,
+                    "card_id": card_id,
+                    "amount": amount,
+                    "event_ts": evt.get("event_ts"),
+                    "ingest_ts": evt.get("ingest_ts"),
+                },
                 timeout=timeout_s,
                 headers={"Connection": "close"},
             )
@@ -57,7 +65,7 @@ def main() -> None:
             pred = r.json()
 
             decision_evt = {
-                "event_id": evt.get("event_id"),
+                "event_id": event_id,
                 "card_id": card_id,
                 "amount": amount,
                 "event_ts": evt.get("event_ts"),
