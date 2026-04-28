@@ -1,0 +1,21 @@
+.DS_Store
+*.pyc
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# Local logs / outputs
+services/model-service/logs/
+
+# Feast local registry / data artifacts (regenerate)
+feature_repo/data/*.parquet
+feature_repo/data/registry.db
+
+# MLflow local artifacts/db (regenerate)
+services/model-training/mlruns/
+services/model-training/mlflow.db
+
+# Grafana local state
+grafana-storage/
