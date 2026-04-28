@@ -31,3 +31,36 @@ card_velocity_1m_view = FeatureView(
     online=True,
 )
 
+# Offline-only view for training/validation joins (same schema, FileSource-backed).
+card_velocity_1m_offline_view = FeatureView(
+    name="card_velocity_1m_offline_v1",
+    entities=[card],
+    ttl=timedelta(minutes=120),
+    schema=[
+        Field(name="txn_count_1m", dtype=Int64),
+        Field(name="amount_sum_1m", dtype=Float64),
+    ],
+    source=card_velocity_1m_batch_source,
+    online=False,
+)
+
+
+# Additional offline-derived feature views (can be materialized to online store later).
+card_velocity_5m_batch_source = FileSource(
+    path="data/card_velocity_5m_v1.parquet",
+    timestamp_field="event_timestamp",
+    created_timestamp_column="created_timestamp",
+)
+
+card_velocity_5m_view = FeatureView(
+    name="card_velocity_5m_v1",
+    entities=[card],
+    ttl=timedelta(minutes=240),
+    schema=[
+        Field(name="txn_count_5m", dtype=Int64),
+        Field(name="avg_transaction_amount_5m", dtype=Float64),
+    ],
+    source=card_velocity_5m_batch_source,
+    online=True,
+)
+

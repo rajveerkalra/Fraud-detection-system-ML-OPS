@@ -61,6 +61,28 @@ services:
           --schema-registry http://schema-registry:8081 \
           --rate 200 --seconds 5
 
+  data-ingestion:
+    image: python:3.11-slim
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+      - ../creditcard.csv:/data/creditcard.csv:ro
+    environment:
+      INPUT_CSV: /data/creditcard.csv
+      OUTPUT_PARQUET: /workspace/feature_repo/data/payments_real.parquet
+      OUTPUT_REPORT_JSON: /workspace/feature_repo/data/payments_real_report.json
+      START_TIME_UTC: "2024-01-01T00:00:00Z"
+      N_CARDS: "50000"
+      N_MERCHANTS: "10000"
+      SEED: "7"
+      PYTHONUNBUFFERED: "1"
+    command:
+      - bash
+      - -lc
+      - |
+        pip install -q -r services/data-ingestion/requirements.txt && \
+        python -u services/data-ingestion/ingest_creditcard_csv.py
+
   redis:
     image: redis:7.4-alpine
     ports:
@@ -280,6 +302,36 @@ services:
       - |
         pip install -q -r requirements.txt && \
         python -u drift_check.py
+
+  evaluation:
+    image: python:3.11-slim
+    depends_on:
+      - mlflow
+      - model-service
+    working_dir: /app
+    volumes:
+      - ./services/evaluation:/app
+      - ./services/model-service/logs:/logs:ro
+      - ./feature_repo/data:/data:ro
+      - ./feature_repo:/repo:ro
+      - ./services/model-training/mlruns:/mlflow/mlruns
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT: fraud_evaluation
+      MODEL_NAME: fraud_model
+      MODEL_ALIAS: production
+      PAYMENTS_REAL_PATH: /data/payments_real.parquet
+      LABEL_DELAY_MINUTES: "60"
+      THRESHOLD: "0.5"
+      MAX_ROWS: "200000"
+      FEAST_REPO: /repo
+      PYTHONUNBUFFERED: "1"
+    command:
+      - bash
+      - -lc
+      - |
+        pip install -q -r requirements.txt && \
+        python -u evaluate_delayed_labels.py
 
 volumes:
   grafana-storage:

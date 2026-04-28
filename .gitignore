@@ -19,3 +19,12 @@ services/model-training/mlflow.db
 
 # Grafana local state
 grafana-storage/
+
+# Local artifacts created by scripts
+artifacts/
+
+# Terraform local state (never commit)
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.*

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import mlflow
+import mlflow.xgboost
 import numpy as np
 from fastapi import FastAPI, HTTPException, Response
 from feast import FeatureStore
@@ -87,17 +88,29 @@ def get_feature_store() -> FeatureStore:
 
 def _load_latest_model() -> tuple[Any, str]:
     """
-    Load the latest model version from MLflow Model Registry.
+    Load the model from MLflow Model Registry.
+
+    Preference order:
+    1) Production alias (if configured)
+    2) Latest version number
     """
     mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
     client = MlflowClient()
-    # Prefer the latest version by version number (demo-ready).
+    # Try alias first (MLflow 2.9+/3.x)
+    try:
+        mv = client.get_model_version_by_alias(settings.model_name, "production")
+        model_uri = f"models:/{settings.model_name}@production"
+        model = mlflow.xgboost.load_model(model_uri)
+        return model, str(mv.version)
+    except Exception:
+        pass
+
     versions = client.search_model_versions(f"name='{settings.model_name}'")
     if not versions:
         raise RuntimeError(f"No registered model found: {settings.model_name}")
     latest = max(versions, key=lambda v: int(v.version))
     model_uri = f"models:/{settings.model_name}/{latest.version}"
-    model = mlflow.sklearn.load_model(model_uri)
+    model = mlflow.xgboost.load_model(model_uri)
     return model, str(latest.version)
 
 
@@ -139,22 +152,57 @@ def predict(req: PredictRequest) -> PredictResponse:
             features=[
                 "card_velocity_1m_v1:txn_count_1m",
                 "card_velocity_1m_v1:amount_sum_1m",
+                # 5m features are defined in Feast, but may be missing from online store in local demo.
+                "card_velocity_5m_v1:txn_count_5m",
+                "card_velocity_5m_v1:avg_transaction_amount_5m",
             ],
             entity_rows=[{"card_id": req.card_id}],
         ).to_dict()
 
-        raw_txn = feats["txn_count_1m"][0]
-        raw_sum = feats["amount_sum_1m"][0]
-        if raw_txn is None:
-            FEATURE_MISSING_TOTAL.labels(feature="txn_count_1m").inc()
-        if raw_sum is None:
-            FEATURE_MISSING_TOTAL.labels(feature="amount_sum_1m").inc()
-        txn_count_1m = raw_txn or 0
-        amount_sum_1m = raw_sum or 0.0
+        def _first(name: str):
+            return feats.get(name, [None])[0]
 
-        X = np.array([[float(txn_count_1m), float(amount_sum_1m), float(req.amount)]], dtype=float)
+        raw_txn_1m = _first("txn_count_1m")
+        raw_sum_1m = _first("amount_sum_1m")
+        raw_txn_5m = _first("txn_count_5m")
+        raw_avg_5m = _first("avg_transaction_amount_5m")
+
+        if raw_txn_1m is None:
+            FEATURE_MISSING_TOTAL.labels(feature="txn_count_1m").inc()
+        if raw_sum_1m is None:
+            FEATURE_MISSING_TOTAL.labels(feature="amount_sum_1m").inc()
+        if raw_txn_5m is None:
+            FEATURE_MISSING_TOTAL.labels(feature="txn_count_5m").inc()
+        if raw_avg_5m is None:
+            FEATURE_MISSING_TOTAL.labels(feature="avg_transaction_amount_5m").inc()
+
+        txn_count_1m = raw_txn_1m or 0
+        amount_sum_1m = raw_sum_1m or 0.0
+        txn_count_5m = raw_txn_5m or 0
+        avg_amount_5m = raw_avg_5m or 0.0
+
+        # Feature order MUST match training.
+        X = np.array(
+            [
+                [
+                    float(txn_count_1m),
+                    float(amount_sum_1m),
+                    float(txn_count_5m),
+                    float(avg_amount_5m),
+                    float(req.amount),
+                ]
+            ],
+            dtype=float,
+        )
         model, ver = get_model()
-        prob = float(model.predict_proba(X)[0][1])
+        # XGBoost sklearn model or Booster
+        if hasattr(model, "predict_proba"):
+            prob = float(model.predict_proba(X)[0][1])
+        else:
+            import xgboost as xgb
+
+            dmat = xgb.DMatrix(X)
+            prob = float(model.predict(dmat)[0])
         decision = "fraud" if prob >= settings.decision_threshold else "approve"
 
         PREDICTIONS_TOTAL.labels(decision=decision).inc()
@@ -170,6 +218,8 @@ def predict(req: PredictRequest) -> PredictResponse:
                 "amount": float(req.amount),
                 "txn_count_1m": int(txn_count_1m),
                 "amount_sum_1m": float(amount_sum_1m),
+                "txn_count_5m": int(txn_count_5m),
+                "avg_transaction_amount_5m": float(avg_amount_5m),
                 "fraud_probability": prob,
                 "decision": decision,
                 "model_version": ver,

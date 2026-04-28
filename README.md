@@ -300,3 +300,19 @@ This compares recent live traffic (prediction logs) vs the training/offline dist
 docker compose run --rm drift-check
 ```
 
+## Phase 6: Evaluation pipeline (delayed labels)
+
+Evaluates the **Production** model offline using:
+
+- real dataset: `feature_repo/data/payments_real.parquet`
+- Feast historical features (same definitions as training)
+- delayed labels simulation: only evaluate rows older than `LABEL_DELAY_MINUTES`
+
+Run evaluation:
+
+```bash
+docker compose run --rm evaluation
+```
+
+You should see an `EVAL_RESULT ...` JSON line and the results logged to MLflow experiment `fraud_evaluation` (UI: `http://localhost:15000`).
+

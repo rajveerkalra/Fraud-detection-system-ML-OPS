@@ -4,3 +4,5 @@ feast[redis]==0.62.0
 mlflow==3.11.1
 pydantic==2.13.3
 prometheus-client==0.22.1
+xgboost==2.0.3
+scikit-learn==1.5.2
