@@ -1,0 +1,2 @@
+confluent-kafka==2.6.0
+fastjsonschema==2.20.0

@@ -1,0 +1,285 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      # Internal listener for other containers, host listener for local dev tools.
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # Single node dev settings
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.1
+    depends_on:
+      - kafka
+    ports:
+      - "18081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:29092
+
+  event-simulator:
+    image: python:3.11-slim
+    depends_on:
+      - kafka
+      - schema-registry
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    environment:
+      PYTHONUNBUFFERED: "1"
+    command:
+      - bash
+      - -lc
+      - |
+        pip install -q -r services/event-simulator/requirements.txt && \
+        python -u services/event-simulator/producer.py \
+          --bootstrap kafka:29092 \
+          --schema-registry http://schema-registry:8081 \
+          --rate 200 --seconds 5
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "16379:6379"
+
+  flink-jobmanager:
+    image: flink:1.19.1-scala_2.12-java17
+    ports:
+      - "18082:8081"
+    command: jobmanager
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
+    volumes:
+      - ./services/streaming-features/sql:/sql
+      - ./services/streaming-features/flink-lib:/opt/flink/usrlib
+
+  flink-taskmanager:
+    image: flink:1.19.1-scala_2.12-java17
+    depends_on:
+      - flink-jobmanager
+    command: taskmanager
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
+      - TASK_MANAGER_NUMBER_OF_TASK_SLOTS=4
+    volumes:
+      - ./services/streaming-features/sql:/sql
+      - ./services/streaming-features/flink-lib:/opt/flink/usrlib
+
+  flink-sql-client:
+    image: flink:1.19.1-scala_2.12-java17
+    depends_on:
+      - flink-jobmanager
+    entrypoint: ["/opt/flink/bin/sql-client.sh"]
+    command: ["embedded", "-l", "/opt/flink/usrlib", "-f", "/sql/card_velocity.sql"]
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
+    volumes:
+      - ./services/streaming-features/sql:/sql
+      - ./services/streaming-features/flink-lib:/opt/flink/usrlib
+
+  feast-feature-server:
+    image: python:3.11-slim
+    depends_on:
+      - redis
+    ports:
+      - "16566:6566"
+    working_dir: /repo
+    volumes:
+      - ./feature_repo:/repo
+    command:
+      - bash
+      - -lc
+      - |
+        pip install -q "feast[redis]==0.62.0" && \
+        feast apply && \
+        feast serve --host 0.0.0.0 --port 6566
+
+  feature-pusher:
+    image: python:3.11-slim
+    depends_on:
+      - kafka
+      - redis
+    working_dir: /app
+    volumes:
+      - ./services/feature-pusher:/app
+      - ./feature_repo:/repo
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+      KAFKA_TOPIC: features.card_velocity_1m.v2
+      KAFKA_OFFSET_RESET: earliest
+      FEAST_REPO: /repo
+      FEAST_PROJECT: streaming_fraud
+      PYTHONUNBUFFERED: "1"
+    command:
+      - bash
+      - -lc
+      - |
+        pip install -r requirements.txt && \
+        python -u pusher.py
+
+  mlflow:
+    image: python:3.11-slim
+    ports:
+      - "15000:5000"
+    working_dir: /mlflow
+    volumes:
+      - ./services/model-training/mlruns:/mlflow/mlruns
+      - ./services/model-training/mlflow.db:/mlflow/mlflow.db
+    environment:
+      MLFLOW_SERVER_ALLOWED_HOSTS: "*"
+    command:
+      - bash
+      - -lc
+      - |
+        pip install -q mlflow==3.11.1 && \
+        mlflow server \
+          --host 0.0.0.0 \
+          --port 5000 \
+          --backend-store-uri sqlite:////mlflow/mlflow.db \
+          --default-artifact-root /mlflow/mlruns
+
+  model-training:
+    image: python:3.11-slim
+    depends_on:
+      - mlflow
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+      - ./services/model-training/mlruns:/mlflow/mlruns
+    environment:
+      # inside the compose network, MLflow is reachable by service name
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      FEAST_REPO: /workspace/feature_repo
+      PAYMENTS_PATH: /workspace/feature_repo/data/payments_v1.parquet
+      KAFKA_BOOTSTRAP: kafka:29092
+    command:
+      - bash
+      - -lc
+      - |
+        pip install -q -r services/model-training/requirements.txt && \
+        python services/model-training/build_offline_dataset.py && \
+        feast -c /workspace/feature_repo apply && \
+        python services/model-training/train.py
+
+  model-service:
+    image: python:3.11-slim
+    depends_on:
+      - mlflow
+      - redis
+    ports:
+      - "18000:8000"
+    working_dir: /app
+    volumes:
+      - ./services/model-service:/app
+      - ./feature_repo:/repo
+      - ./services/model-training/mlruns:/mlflow/mlruns
+      - ./services/model-service/logs:/logs
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      FEAST_REPO: /repo
+      MODEL_NAME: fraud_model
+      DECISION_THRESHOLD: "0.5"
+      PYTHONUNBUFFERED: "1"
+    command:
+      - bash
+      - -lc
+      - |
+        pip install -r requirements.txt && \
+        uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  realtime-inference:
+    image: python:3.11-slim
+    depends_on:
+      - kafka
+      - model-service
+    working_dir: /app
+    volumes:
+      - ./services/realtime-inference:/app
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+      KAFKA_TOPIC_IN: payments.v1
+      KAFKA_TOPIC_OUT: decisions.v1
+      KAFKA_GROUP_ID: realtime-inference.v1
+      KAFKA_OFFSET_RESET: latest
+      MODEL_SERVICE_URL: http://model-service:8000
+      MODEL_TIMEOUT_SECONDS: "2.0"
+      PYTHONUNBUFFERED: "1"
+    command:
+      - bash
+      - -lc
+      - |
+        pip install -q -r requirements.txt && \
+        python -u inference.py
+
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    depends_on:
+      - model-service
+    ports:
+      - "19090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    depends_on:
+      - prometheus
+    ports:
+      - "13000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_USERS_DEFAULT_THEME: "light"
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  drift-check:
+    image: python:3.11-slim
+    depends_on:
+      - model-service
+    working_dir: /app
+    volumes:
+      - ./services/drift-check:/app
+      - ./feature_repo/data:/data:ro
+      - ./services/model-service/logs:/logs:ro
+    environment:
+      PAYMENTS_PATH: /data/payments_v1.parquet
+      OFFLINE_FEATURES_PATH: /data/card_velocity_1m_v1.parquet
+      PREDICTION_LOG_PATH: /logs/predictions.jsonl
+      RECENT_ROWS: "5000"
+    command:
+      - bash
+      - -lc
+      - |
+        pip install -q -r requirements.txt && \
+        python -u drift_check.py
+
+volumes:
+  grafana-storage:

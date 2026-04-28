@@ -1,0 +1,3 @@
+confluent-kafka==2.6.0
+feast[redis]==0.62.0
+pandas==2.2.3

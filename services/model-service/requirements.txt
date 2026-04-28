@@ -1,0 +1,6 @@
+fastapi==0.136.1
+uvicorn[standard]==0.34.0
+feast[redis]==0.62.0
+mlflow==3.11.1
+pydantic==2.13.3
+prometheus-client==0.22.1

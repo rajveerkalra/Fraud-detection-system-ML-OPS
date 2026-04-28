@@ -1,0 +1,33 @@
+{
+  "type": "record",
+  "name": "PaymentEventV1",
+  "namespace": "com.streamingfraud",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "card_id", "type": "string" },
+    { "name": "user_id", "type": "string" },
+    { "name": "merchant_id", "type": "string" },
+    { "name": "device_id", "type": "string" },
+    { "name": "ip", "type": "string" },
+    { "name": "account_id", "type": "string" },
+
+    { "name": "amount", "type": "double" },
+    { "name": "currency", "type": "string" },
+    { "name": "mcc", "type": "string" },
+    {
+      "name": "channel",
+      "type": { "type": "enum", "name": "Channel", "symbols": ["pos", "ecom"] }
+    },
+    { "name": "is_card_present", "type": "boolean" },
+
+    { "name": "country", "type": "string" },
+    { "name": "city", "type": "string" },
+    { "name": "lat", "type": "double" },
+    { "name": "lon", "type": "double" },
+
+    { "name": "event_ts", "type": "string" },
+    { "name": "ingest_ts", "type": "string" },
+
+    { "name": "is_fraud", "type": "int" }
+  ]
+}

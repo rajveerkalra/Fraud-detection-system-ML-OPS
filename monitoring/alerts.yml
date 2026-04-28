@@ -1,0 +1,57 @@
+groups:
+  - name: model-service
+    rules:
+      - alert: ModelServiceDown
+        expr: up{job="model-service"} == 0
+        for: 30s
+        labels:
+          severity: page
+        annotations:
+          summary: "model-service is down"
+          description: "Prometheus cannot scrape model-service /metrics."
+
+      - alert: HighPredictErrorRate
+        expr: |
+          (
+            rate(model_service_requests_total{endpoint="/predict",status="error"}[2m])
+            /
+            clamp_min(rate(model_service_requests_total{endpoint="/predict",status="ok"}[2m]) + rate(model_service_requests_total{endpoint="/predict",status="error"}[2m]), 0.001)
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "High /predict error rate"
+          description: "More than 5% errors over last 2 minutes."
+
+      - alert: HighPredictLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(model_service_predict_latency_seconds_bucket[2m])) by (le)
+          ) > 0.25
+        for: 2m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "High /predict p95 latency"
+          description: "p95 latency > 250ms for 2 minutes."
+
+      - alert: OnlineFeatureMissingSpike
+        expr: sum(rate(model_service_feature_missing_total[2m])) > 1
+        for: 2m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Online features missing spike"
+          description: "Feast online lookup returning missing features frequently."
+
+      - alert: NoPredictions
+        expr: rate(model_service_predictions_total[5m]) == 0
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "No predictions happening"
+          description: "No predictions observed for 10 minutes (may be fine if system is idle)."
+
