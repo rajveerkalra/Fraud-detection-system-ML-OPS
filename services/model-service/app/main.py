@@ -22,6 +22,7 @@ class Settings:
     model_name: str = os.getenv("MODEL_NAME", "fraud_model")
     decision_threshold: float = float(os.getenv("DECISION_THRESHOLD", "0.5"))
     prediction_log_path: str = os.getenv("PREDICTION_LOG_PATH", "/logs/predictions.jsonl")
+    allow_fallback_model: bool = os.getenv("ALLOW_FALLBACK_MODEL", "1") == "1"
 
 
 settings = Settings()
@@ -118,11 +119,31 @@ def _load_latest_model() -> tuple[Any, str]:
     return model, str(latest.version)
 
 
+class _FallbackModel:
+    """Heuristic fallback used when registry has no model yet."""
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        # X columns: txn_count_1m, amount_sum_1m, txn_count_5m, avg_transaction_amount_5m, amount
+        amount = X[:, 4]
+        txn_1m = X[:, 0]
+        txn_5m = X[:, 2]
+        # Simple bounded score so CI/demo can run before training.
+        logits = -6.0 + (amount / 250.0) + (txn_1m * 0.35) + (txn_5m * 0.08)
+        probs = 1.0 / (1.0 + np.exp(-logits))
+        probs = np.clip(probs, 0.001, 0.999)
+        return np.vstack([1.0 - probs, probs]).T
+
+
 def get_model() -> tuple[Any, str]:
     global _model, _model_version, _model_loaded_at
     now = time.time()
     if _model is None or (now - _model_loaded_at) > _model_cache_seconds:
-        model, ver = _load_latest_model()
+        try:
+            model, ver = _load_latest_model()
+        except Exception:
+            if not settings.allow_fallback_model:
+                raise
+            model, ver = _FallbackModel(), "fallback"
         _model = model
         _model_version = ver
         _model_loaded_at = now

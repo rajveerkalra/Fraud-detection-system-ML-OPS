@@ -12,7 +12,7 @@ variable "project_name" {
 
 variable "model_service_image" {
   type        = string
-  description = "Container image URI for model-service (e.g. <acct>.dkr.ecr.<region>.amazonaws.com/model-service:latest)"
+  description = "Container image URI for model-service"
 }
 
 variable "model_service_port" {
@@ -30,13 +30,13 @@ variable "model_service_ingress_cidr" {
 variable "model_service_cpu" {
   type        = number
   description = "Fargate CPU units"
-  default     = 256
+  default     = 512
 }
 
 variable "model_service_memory" {
   type        = number
   description = "Fargate memory in MB"
-  default     = 512
+  default     = 1024
 }
 
 variable "model_service_desired_count" {
@@ -47,26 +47,26 @@ variable "model_service_desired_count" {
 
 variable "enable_ecr" {
   type        = bool
-  description = "Create ECR repositories for images"
+  description = "Create ECR repositories"
   default     = true
 }
 
 variable "enable_s3_mlflow_artifacts" {
   type        = bool
-  description = "Create an S3 bucket for MLflow artifacts (demo use)"
+  description = "Create S3 bucket for MLflow artifacts"
   default     = true
 }
 
 variable "streaming_instance_type" {
   type        = string
-  description = "EC2 type for streaming host (Kafka/Flink/Redis/MLflow/monitoring)"
+  description = "EC2 type for streaming host"
   default     = "t3.small"
 }
 
 variable "streaming_root_volume_gb" {
   type        = number
   description = "Root EBS volume size"
-  default     = 30
+  default     = 40
 }
 
 variable "ssh_cidr" {
@@ -83,7 +83,7 @@ variable "key_pair_name" {
 
 variable "enable_budget_alerts" {
   type        = bool
-  description = "Enable AWS Budget alerts"
+  description = "Enable AWS budget alerts"
   default     = true
 }
 
@@ -98,4 +98,3 @@ variable "budget_alert_email" {
   description = "Email address for budget alerts"
   default     = ""
 }
-

@@ -1,0 +1,23 @@
+# SAFE DRY-RUN EXAMPLE
+# Copy to terraform.tfvars and update values before plan/apply.
+# Do not run apply unless you explicitly want to create AWS resources.
+
+aws_region          = "us-east-1"
+project_name        = "streaming-fraud-mlops"
+model_service_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/streaming-fraud-mlops-staging/model-service:latest"
+model_service_ingress_cidr = "0.0.0.0/0"
+
+model_service_cpu           = 512
+model_service_memory        = 1024
+model_service_desired_count = 1
+
+streaming_instance_type  = "t3.small"
+streaming_root_volume_gb = 40
+ssh_cidr                 = "YOUR_PUBLIC_IP/32"
+key_pair_name            = "your-keypair-name"
+
+enable_ecr                 = true
+enable_s3_mlflow_artifacts = true
+enable_budget_alerts       = true
+monthly_budget_usd         = "200"
+budget_alert_email         = "you@example.com"

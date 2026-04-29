@@ -3,7 +3,7 @@ module "cost_safe_stack" {
 
   aws_region                  = var.aws_region
   project_name                = var.project_name
-  environment                 = "dev"
+  environment                 = "staging"
   model_service_image         = var.model_service_image
   model_service_port          = var.model_service_port
   model_service_ingress_cidr  = var.model_service_ingress_cidr
@@ -22,4 +22,3 @@ module "cost_safe_stack" {
   monthly_budget_usd         = var.monthly_budget_usd
   budget_alert_email         = var.budget_alert_email
 }
-

@@ -1,6 +1,11 @@
-# Terraform (AWS) — cost-conscious cloud demo
+# Terraform (AWS) — cost-conscious cloud demo (dry-run first)
 
 This folder contains Terraform to deploy a **minimal, demo-friendly** version of the project on AWS while minimizing surprise costs.
+
+For the current planning phase, use:
+
+- `infra/AWS_DRY_RUN_PLAN.md` (architecture, costs, deployment checklist)
+- `terraform plan` only (no apply)
 
 ## Why “minimal” for AWS free tier?
 
@@ -12,33 +17,39 @@ So this Terraform is structured as:
 - **Optional modules**: ECR repos, S3 bucket for MLflow artifacts, etc.
 - **Future upgrade path**: add MSK / Flink / Redis when you’re ready to do a short-lived “big demo” run.
 
-## What gets created (default)
+## What gets created (modular default)
 
-- ECS cluster (Fargate)
-- ECS task + service for `model-service` (public IP)
-- Security group allowing inbound TCP 8000
+- ECS cluster (Fargate) for `model-service`
+- EC2 host for Kafka/Flink/Redis/MLflow/Prometheus/Grafana (cost-aware demo mode)
+- Security groups
 - CloudWatch log group
-- Optional: ECR repo(s) for container images
+- Optional ECR repo(s)
+- Optional S3 bucket for MLflow artifacts
+- Optional AWS Budget alerts
 
-## Quickstart (dev)
+## Layout
+
+- Module: `infra/terraform/modules/cost_safe_stack`
+- Environments:
+  - `infra/terraform/envs/dev`
+  - `infra/terraform/envs/staging`
+
+Each environment has `terraform.tfvars.example` for safe configuration.
+
+## Dry-run quickstart (dev)
 
 From `infra/terraform/envs/dev`:
 
 ```bash
 terraform init
-terraform plan
-terraform apply
+terraform plan -var-file=terraform.tfvars
 ```
 
-Then use the output `model_service_public_ip`:
+Do not run `terraform apply` until cost/budget checks are completed.
+
+## Tear down (when applied)
 
 ```bash
-curl "http://<public-ip>:8000/health"
-```
-
-## Tear down (important)
-
-```bash
-terraform destroy
+bash ../../scripts/teardown_all.sh
 ```
 
