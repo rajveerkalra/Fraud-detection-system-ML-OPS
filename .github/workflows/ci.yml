@@ -20,3 +20,46 @@ jobs:
       - name: Run end-to-end demo smoke test
         run: make demo
 
+  eval-staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: demo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Docker versions
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Start services for event_id evaluation
+        run: |
+          docker compose up -d model-service realtime-inference label-simulator event-simulator
+          sleep 12
+
+      - name: Run staging quality gates
+        run: make eval-staging
+
+  eval-production-main:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: eval-staging
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Docker versions
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Start services for event_id evaluation
+        run: |
+          docker compose up -d model-service realtime-inference label-simulator event-simulator
+          sleep 12
+
+      - name: Run production quality gates
+        run: make eval-production
+

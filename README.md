@@ -25,6 +25,8 @@ make demo
 Workflow: `.github/workflows/ci.yml`
 
 - Runs `make demo` on every push / PR (end-to-end smoke test using Docker Compose).
+- Runs `make eval-staging` on every push / PR (staging quality gates).
+- Runs `make eval-production` only on `push` to `main` (production quality gates).
 
 ## Start Kafka + Schema Registry
 
@@ -337,4 +339,28 @@ Notes:
 
 - `LABEL_DELAY_SECONDS` (label-simulator) controls the delay (demo default is small).
 - `LABEL_GRACE_MINUTES` (evaluation-eventid) prevents evaluating “too fresh” predictions that may not have labels yet.
+- Quality gates (for CI/prod safety): set `MIN_JOIN_RATE`, `MIN_PRECISION`, `MIN_RECALL`, `MIN_PR_AUC`.  
+  Any configured threshold breach makes the job fail with `evaluation_quality_gate_failed`.
+
+### Governance profiles (Dev / Staging / Production)
+
+Profiles are versioned in:
+
+- `services/evaluation/profiles/dev.env`
+- `services/evaluation/profiles/staging.env`
+- `services/evaluation/profiles/production.env`
+
+Run each profile:
+
+```bash
+make eval-dev
+make eval-staging
+make eval-production
+```
+
+Current gate defaults:
+
+- **Dev** (relaxed): mostly integrity checks while iterating fast
+- **Staging** (balanced): `join_rate>=0.99`, `precision>=0.003`, `recall>=0.20`, `pr_auc>=0.004`
+- **Production** (stricter): `join_rate>=0.995`, `precision>=0.004`, `recall>=0.24`, `pr_auc>=0.005`
 

@@ -369,6 +369,68 @@ services:
       - ./services/evaluation:/app
       - ./services/model-service/logs:/logs:ro
       - ./services/model-training/mlruns:/mlflow/mlruns
+    env_file:
+      - ./services/evaluation/profiles/dev.env
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT: fraud_evaluation_eventid
+      PREDICTION_LOG_PATH: /logs/predictions_eventid.jsonl
+      LABELS_LOG_PATH: /logs/labels.jsonl
+      THRESHOLD: "0.5"
+      LABEL_GRACE_MINUTES: "0"
+      ALLOW_PARTIAL: "0"
+      MAX_ROWS: "200000"
+      PYTHONUNBUFFERED: "1"
+    command:
+      - bash
+      - -lc
+      - |
+        pip install -q -r requirements.txt && \
+        python -u evaluate_eventid_delayed_labels.py
+
+  evaluation-eventid-staging:
+    image: python:3.11-slim
+    depends_on:
+      - mlflow
+      - model-service
+      - label-simulator
+    working_dir: /app
+    volumes:
+      - ./services/evaluation:/app
+      - ./services/model-service/logs:/logs:ro
+      - ./services/model-training/mlruns:/mlflow/mlruns
+    env_file:
+      - ./services/evaluation/profiles/staging.env
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT: fraud_evaluation_eventid
+      PREDICTION_LOG_PATH: /logs/predictions_eventid.jsonl
+      LABELS_LOG_PATH: /logs/labels.jsonl
+      THRESHOLD: "0.5"
+      LABEL_GRACE_MINUTES: "0"
+      ALLOW_PARTIAL: "0"
+      MAX_ROWS: "200000"
+      PYTHONUNBUFFERED: "1"
+    command:
+      - bash
+      - -lc
+      - |
+        pip install -q -r requirements.txt && \
+        python -u evaluate_eventid_delayed_labels.py
+
+  evaluation-eventid-production:
+    image: python:3.11-slim
+    depends_on:
+      - mlflow
+      - model-service
+      - label-simulator
+    working_dir: /app
+    volumes:
+      - ./services/evaluation:/app
+      - ./services/model-service/logs:/logs:ro
+      - ./services/model-training/mlruns:/mlflow/mlruns
+    env_file:
+      - ./services/evaluation/profiles/production.env
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
       MLFLOW_EXPERIMENT: fraud_evaluation_eventid

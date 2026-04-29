@@ -22,6 +22,10 @@ class EvalCfg:
     # Integrity mode
     allow_partial: bool
     max_rows: int
+    min_join_rate: float
+    min_precision: float
+    min_recall: float
+    min_pr_auc: float
 
 
 def utc_now_iso() -> str:
@@ -54,6 +58,10 @@ def main() -> None:
         label_grace_minutes=int(os.getenv("LABEL_GRACE_MINUTES", "5")),
         allow_partial=os.getenv("ALLOW_PARTIAL", "0") == "1",
         max_rows=int(os.getenv("MAX_ROWS", "200000")),
+        min_join_rate=float(os.getenv("MIN_JOIN_RATE", "-1")),
+        min_precision=float(os.getenv("MIN_PRECISION", "-1")),
+        min_recall=float(os.getenv("MIN_RECALL", "-1")),
+        min_pr_auc=float(os.getenv("MIN_PR_AUC", "-1")),
     )
 
     preds = read_jsonl(cfg.prediction_log_path)
@@ -131,6 +139,10 @@ def main() -> None:
                 "allow_partial": int(cfg.allow_partial),
                 "prediction_log_path": cfg.prediction_log_path,
                 "labels_log_path": cfg.labels_log_path,
+                "min_join_rate": cfg.min_join_rate,
+                "min_precision": cfg.min_precision,
+                "min_recall": cfg.min_recall,
+                "min_pr_auc": cfg.min_pr_auc,
             }
         )
         mlflow.log_metrics(metrics)
@@ -141,6 +153,20 @@ def main() -> None:
         (artifacts / "eventid_evaluation_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
         mlflow.log_artifact(str(artifacts / "eventid_evaluation_summary.json"))
         print("EVAL_RESULT " + json.dumps(summary, separators=(",", ":")))
+
+    gate_failures: list[str] = []
+    if cfg.min_join_rate >= 0 and metrics["join_rate"] < cfg.min_join_rate:
+        gate_failures.append(f"join_rate {metrics['join_rate']:.6f} < {cfg.min_join_rate:.6f}")
+    if cfg.min_precision >= 0 and metrics["precision"] < cfg.min_precision:
+        gate_failures.append(f"precision {metrics['precision']:.6f} < {cfg.min_precision:.6f}")
+    if cfg.min_recall >= 0 and metrics["recall"] < cfg.min_recall:
+        gate_failures.append(f"recall {metrics['recall']:.6f} < {cfg.min_recall:.6f}")
+    pr_auc = metrics["pr_auc"]
+    if cfg.min_pr_auc >= 0 and np.isfinite(pr_auc) and pr_auc < cfg.min_pr_auc:
+        gate_failures.append(f"pr_auc {pr_auc:.6f} < {cfg.min_pr_auc:.6f}")
+
+    if gate_failures:
+        raise SystemExit("evaluation_quality_gate_failed: " + "; ".join(gate_failures))
 
 
 if __name__ == "__main__":
