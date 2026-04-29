@@ -8,7 +8,7 @@ echo "[smoke] clear local sinks (predictions/labels)..."
 rm -f services/model-service/logs/predictions_eventid.jsonl services/model-service/logs/labels.jsonl || true
 
 echo "[smoke] bringing up core stack..."
-docker compose up -d kafka zookeeper schema-registry redis mlflow model-service realtime-inference label-simulator prometheus grafana >/dev/null
+docker compose up -d kafka zookeeper schema-registry redis mlflow model-service prometheus grafana >/dev/null
 
 echo "[smoke] wait for model-service /health..."
 health_ok=0
@@ -39,6 +39,9 @@ if [[ "$kafka_ok" -ne 1 ]]; then
   docker compose logs --tail=120 kafka zookeeper realtime-inference
   exit 1
 fi
+
+echo "[smoke] start realtime inference + label simulator..."
+docker compose up -d realtime-inference label-simulator >/dev/null
 
 echo "[smoke] check /metrics contains model_service_*..."
 if ! curl -sS --http1.1 -H 'Connection: close' "http://localhost:18000/metrics" | grep -q "model_service_predictions_total"; then
