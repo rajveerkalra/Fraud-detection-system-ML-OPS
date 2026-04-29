@@ -25,18 +25,18 @@ if [[ "$health_ok" -ne 1 ]]; then
   exit 1
 fi
 
-echo "[smoke] wait for Kafka topic decisions.v1 metadata..."
-topic_ok=0
-for _ in $(seq 1 45); do
-  if docker compose exec -T kafka kafka-topics --bootstrap-server kafka:29092 --describe --topic decisions.v1 >/dev/null 2>&1; then
-    topic_ok=1
+echo "[smoke] wait for Kafka broker readiness..."
+kafka_ok=0
+for _ in $(seq 1 60); do
+  if docker compose exec -T kafka kafka-broker-api-versions --bootstrap-server kafka:29092 >/dev/null 2>&1; then
+    kafka_ok=1
     break
   fi
   sleep 2
 done
-if [[ "$topic_ok" -ne 1 ]]; then
-  echo "[smoke][fail] decisions.v1 topic metadata not ready"
-  docker compose logs --tail=120 kafka realtime-inference
+if [[ "$kafka_ok" -ne 1 ]]; then
+  echo "[smoke][fail] Kafka broker did not become ready"
+  docker compose logs --tail=120 kafka zookeeper realtime-inference
   exit 1
 fi
 
@@ -48,6 +48,21 @@ fi
 
 echo "[smoke] produce a small batch to payments.v1..."
 docker compose run --rm event-simulator >/dev/null
+
+echo "[smoke] wait for Kafka topic decisions.v1 metadata..."
+topic_ok=0
+for _ in $(seq 1 45); do
+  if docker compose exec -T kafka kafka-topics --bootstrap-server kafka:29092 --describe --topic decisions.v1 >/dev/null 2>&1; then
+    topic_ok=1
+    break
+  fi
+  sleep 2
+done
+if [[ "$topic_ok" -ne 1 ]]; then
+  echo "[smoke][fail] decisions.v1 topic metadata not ready after producing events"
+  docker compose logs --tail=120 kafka realtime-inference event-simulator
+  exit 1
+fi
 
 echo "[smoke] wait for model-service to record some predictions..."
 for _ in $(seq 1 30); do
